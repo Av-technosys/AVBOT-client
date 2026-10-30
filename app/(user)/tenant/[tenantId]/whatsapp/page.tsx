@@ -2,229 +2,347 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import {
+  CheckIcon,
+  MessageCircleIcon,
+  PencilIcon,
+  PhoneIcon,
+  PlusIcon,
+  Trash2Icon,
+} from 'lucide-react';
 import { ConnectionRecords } from '@/components/connection-records';
-import { PlusIcon } from 'lucide-react';
-
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toast, ToastState } from '@/components/notification-toast';
+import { toast } from 'sonner';
 import { TenantBreadcrumb } from '@/components/tenant-breadcrumb';
-import { getWhatsappConnect, saveWhatsappConnect, deleteWhatsappConnect } from '@/lib/api';
+import {
+  listWhatsappAccounts,
+  saveWhatsappAccount,
+  deleteWhatsappAccount,
+  type WhatsappAccount,
+} from '@/lib/api';
 
-type FormState = {
+type AccountForm = {
   businessAccountId: string;
   apiVersion: string;
   accessToken: string;
   encryptedToken: string;
+  webhookSecretEncrypted: string;
 };
-
-const emptyForm: FormState = {
+const emptyForm: AccountForm = {
   businessAccountId: '',
   apiVersion: '',
   accessToken: '',
   encryptedToken: '',
+  webhookSecretEncrypted: '',
 };
+const fields: {
+  key: keyof AccountForm;
+  label: string;
+  secret?: boolean;
+  savedFlag?: 'hasAccessToken' | 'hasEncryptedToken' | 'hasWebhookSecret';
+  maxLength: number;
+}[] = [
+  { key: 'businessAccountId', label: 'WhatsApp Business Account ID', maxLength: 255 },
+  { key: 'apiVersion', label: 'API version', maxLength: 512 },
+  {
+    key: 'accessToken',
+    label: 'Access token (optional)',
+    secret: true,
+    savedFlag: 'hasAccessToken',
+    maxLength: 512,
+  },
+  {
+    key: 'encryptedToken',
+    label: 'Encrypted access token',
+    secret: true,
+    savedFlag: 'hasEncryptedToken',
+    maxLength: 512,
+  },
+  {
+    key: 'webhookSecretEncrypted',
+    label: 'Meta App Secret',
+    secret: true,
+    savedFlag: 'hasWebhookSecret',
+    maxLength: 512,
+  },
+];
 
 export default function WhatsappConnectPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
+  return <WhatsappAccounts key={tenantId} tenantId={tenantId} />;
+}
 
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [hasData, setHasData] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
+function WhatsappAccounts({ tenantId }: { tenantId: string }) {
+  const [accounts, setAccounts] = useState<WhatsappAccount[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [form, setForm] = useState<AccountForm>(emptyForm);
+  // null closes the form; an empty ID creates a new account.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [toast, setToast] = useState<ToastState>(null);
+  const [loadError, setLoadError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const selected = accounts.find((account) => account.id === selectedId);
+  const editingAccount = accounts.find((account) => account.id === editingId);
 
   useEffect(() => {
-    getWhatsappConnect(tenantId)
-      .then((res) => {
-        if (res.data) {
-          setForm({
-            businessAccountId: res.data.businessAccountId ?? '',
-            apiVersion: res.data.apiVersion ?? '',
-            accessToken: res.data.accessToken ?? '',
-            encryptedToken: res.data.encryptedToken ?? '',
-          });
-          setHasData(true);
-        }
+    let active = true;
+    listWhatsappAccounts(tenantId)
+      .then(({ data }) => {
+        if (!active) return;
+        setAccounts(data);
+        setSelectedId((previous) =>
+          data.some((row) => row.id === previous) ? previous : (data[0]?.id ?? ''),
+        );
+        setLoadError('');
       })
-      .catch(() => {
-        setHasData(false);
+      .catch((error: Error) => {
+        if (active) setLoadError(error.message);
       })
-      .finally(() => setLoaded(true));
-  }, [tenantId]);
-
-  function handleAdd() {
-    setForm(emptyForm);
-    setIsAdding(true);
-    setShowForm(true);
-  }
-
-  function handleEdit() {
-    setIsAdding(false);
-    setShowForm(true);
-  }
-
-  function handleChange(key: keyof FormState, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-
-    try {
-      await saveWhatsappConnect(tenantId, form);
-
-      setHasData(true);
-      setShowForm(false);
-
-      setToast({
-        message: isAdding ? 'WhatsApp connect added' : 'WhatsApp connect updated',
-        type: 'success',
+      .finally(() => {
+        if (active) setLoaded(true);
       });
+    return () => {
+      active = false;
+    };
+  }, [tenantId, reload]);
 
-      setSaving(false);
-      setDeleting(false);
-    } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : 'Failed to save WhatsApp connect',
-        type: 'error',
-      });
-      setSaving(false);
-    }
+  function edit(account?: WhatsappAccount) {
+    setEditingId(account?.id ?? '');
+    setForm({
+      ...emptyForm,
+      businessAccountId: account?.businessAccountId ?? '',
+      apiVersion: account?.apiVersion ?? '',
+      accessToken: '',
+      encryptedToken: '',
+      webhookSecretEncrypted: '',
+    });
   }
 
-  async function handleDelete() {
-    const confirmed = window.confirm(
-      'Do you want to delete WhatsApp connect? This action cannot be undone.',
-    );
-
-    if (!confirmed) return;
-
-    setDeleting(true);
-
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (editingId === null || busy) return;
+    const accessToken = form.accessToken.trim();
+    const encryptedToken = form.encryptedToken.trim();
+    const webhookSecretEncrypted = form.webhookSecretEncrypted.trim();
+    setBusy(true);
     try {
-      await deleteWhatsappConnect(tenantId);
-
-      setHasData(false);
+      const { data } = await saveWhatsappAccount(
+        tenantId,
+        {
+          businessAccountId: form.businessAccountId,
+          apiVersion: form.apiVersion,
+          ...(accessToken ? { accessToken } : {}),
+          ...(encryptedToken ? { encryptedToken } : {}),
+          ...(webhookSecretEncrypted ? { webhookSecretEncrypted } : {}),
+        },
+        editingId || undefined,
+      );
+      setAccounts((previous) =>
+        editingId ? previous.map((row) => (row.id === data.id ? data : row)) : [...previous, data],
+      );
+      setSelectedId(data.id);
+      setEditingId(null);
       setForm(emptyForm);
-
-      setToast({
-        message: 'WhatsApp connect deleted',
-        type: 'success',
-      });
-
-      setSaving(false);
-      setDeleting(false);
-    } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : 'Failed to delete WhatsApp connect',
-        type: 'error',
-      });
-      setDeleting(false);
+      toast.success(
+        editingId ? 'WhatsApp account updated' : 'Account saved. Add its phone numbers below.',
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save account');
+    } finally {
+      setBusy(false);
     }
   }
 
-  if (!loaded) {
-    return <p className="text-muted-foreground text-sm">Loading...</p>;
+  async function remove(account: WhatsappAccount) {
+    if (
+      busy ||
+      !window.confirm(
+        `Delete WhatsApp account ${account.businessAccountId} and all its phone numbers?`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await deleteWhatsappAccount(tenantId, account.id);
+      const remaining = accounts.filter((row) => row.id !== account.id);
+      setAccounts(remaining);
+      if (selectedId === account.id) setSelectedId(remaining[0]?.id ?? '');
+      if (editingId === account.id) {
+        setEditingId(null);
+        setForm(emptyForm);
+      }
+      toast.success('WhatsApp account deleted');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not delete account');
+    } finally {
+      setBusy(false);
+    }
   }
-
-  const fields: {
-    key: keyof FormState;
-    label: string;
-    type?: string;
-  }[] = [
-    {
-      key: 'businessAccountId',
-      label: 'Business Account ID',
-    },
-    {
-      key: 'apiVersion',
-      label: 'API Version',
-    },
-    {
-      key: 'accessToken',
-      label: 'Access Token',
-      type: 'password',
-    },
-    {
-      key: 'encryptedToken',
-      label: 'Encrypted Token',
-      type: 'password',
-    },
-  ];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <TenantBreadcrumb currentPage="WhatsApp Connect" tenantId={tenantId} />
-
-      <div className="flex items-center justify-between">
+      <div>
         <h1 className="text-2xl font-semibold">WhatsApp Connect</h1>
-
-        {!showForm && !hasData && (
-          <Button onClick={handleAdd}>
-            <PlusIcon />
-            Add WhatsApp Connect
-          </Button>
-        )}
+        <p className="text-muted-foreground mt-1 text-sm">
+          Connect a business account to this tenant, then add its phone numbers.
+        </p>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>
-            {showForm
-              ? isAdding
-                ? 'Add WhatsApp Connect'
-                : 'Edit WhatsApp Connect'
-              : 'WhatsApp Connect'}
-          </CardTitle>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircleIcon className="size-4" />
+              WhatsApp accounts
+            </CardTitle>
+            {loaded && !loadError && editingId === null && (
+              <Button disabled={busy} onClick={() => edit()}>
+                <PlusIcon />
+                Add account
+              </Button>
+            )}
+          </div>
+          <CardDescription>
+            Select an account to manage its numbers. Each account can have multiple numbers.
+          </CardDescription>
         </CardHeader>
-
-        <CardContent>
-          {!showForm && hasData && (
-            <div className="flex gap-2">
-              <Button onClick={handleEdit}>Edit</Button>
-
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
+        <CardContent className="space-y-4">
+          {!loaded && <p className="text-muted-foreground text-sm">Loading accounts...</p>}
+          {loadError && (
+            <div role="alert" className="space-y-2">
+              <p className="text-destructive text-sm">{loadError}</p>
+              <Button variant="outline" onClick={() => setReload((value) => value + 1)}>
+                Retry
               </Button>
             </div>
           )}
-
-          {!showForm && !hasData && (
-            <p className="text-muted-foreground text-sm">No WhatsApp connection configured.</p>
+          {loaded && !loadError && accounts.length === 0 && editingId === null && (
+            <div className="bg-muted/30 rounded-lg border border-dashed p-6 text-center">
+              <p className="font-medium">Connect your first WhatsApp account</p>
+              <p className="text-muted-foreground mt-1 text-sm">
+                Save the account details before adding phone numbers.
+              </p>
+            </div>
           )}
-
-          {showForm && (
-            <form onSubmit={handleSave} className="flex flex-col gap-4">
-              {fields.map((field) => (
-                <div key={field.key}>
-                  <Label className="mb-2">{field.label}</Label>
-
-                  <Input
-                    type={field.type ?? 'text'}
-                    value={form[field.key]}
-                    onChange={(e) => handleChange(field.key, e.target.value)}
-                    required
-                  />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {accounts.map((account) => (
+              <div
+                key={account.id}
+                className={`space-y-3 rounded-lg border p-4 ${selectedId === account.id ? 'border-primary bg-primary/5' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium break-all">{account.businessAccountId}</p>
+                    <p className="text-muted-foreground text-sm">API {account.apiVersion}</p>
+                  </div>
+                  {selectedId === account.id && (
+                    <span className="text-primary flex shrink-0 items-center gap-1 text-xs">
+                      <CheckIcon className="size-3" />
+                      Selected
+                    </span>
+                  )}
                 </div>
-              ))}
+                {/* <div className="text-muted-foreground space-y-1 text-xs">
+                  {fields
+                    .filter((field) => field.savedFlag)
+                    .map((field) => (
+                      <div key={field.key} className="space-y-1">
+                        <p>{field.label}</p>
+                        <p className="text-foreground font-mono break-all">
+                          {account[field.key] || 'Not saved'}
+                        </p>
+                      </div>
+                    ))}
+                </div> */}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={selectedId === account.id ? 'secondary' : 'outline'}
+                    disabled={busy || editingId !== null}
+                    onClick={() => setSelectedId(account.id)}
+                  >
+                    Manage numbers
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={busy || editingId !== null}
+                    onClick={() => edit(account)}
+                  >
+                    <PencilIcon />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={busy || editingId !== null}
+                    onClick={() => remove(account)}
+                    aria-label={`Delete account ${account.businessAccountId}`}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
 
+          {editingId !== null && (
+            <form onSubmit={save} className="space-y-4 rounded-lg border p-4">
+              <h2 className="font-medium">
+                {editingId ? 'Edit WhatsApp account' : 'Add WhatsApp account'}
+              </h2>
+              {editingId && (
+                <p className="text-muted-foreground text-sm">
+                  Saved credentials are shown below. Edit a value to replace it, or leave it blank
+                  to keep the saved value.
+                </p>
+              )}
+              <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
+                {fields.map((field) => {
+                  const saved = Boolean(field.savedFlag && editingAccount?.[field.savedFlag]);
+                  return (
+                    <div key={field.key} className="space-y-2">
+                      <Label htmlFor={`account-${field.key}`}>{field.label}</Label>
+                      <Input
+                        id={`account-${field.key}`}
+                        type="text"
+                        autoComplete="off"
+                        spellCheck={field.secret ? false : undefined}
+                        maxLength={field.maxLength}
+                        name={field.key}
+                        value={form[field.key]}
+                        aria-describedby={field.secret ? `account-${field.key}-status` : undefined}
+                        required={!field.secret || (!saved && field.key !== 'accessToken')}
+                        onChange={(event) =>
+                          setForm((previous) => ({ ...previous, [field.key]: event.target.value }))
+                        }
+                      />
+                      {field.secret && (
+                        <p
+                          id={`account-${field.key}-status`}
+                          className="text-muted-foreground text-xs"
+                        >
+                          {saved ? 'Saved value loaded. Leave blank to keep it.' : 'Not saved yet.'}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </fieldset>
               <div className="flex gap-2">
-                <Button type="submit" disabled={saving}>
-                  {saving ? 'Saving...' : isAdding ? 'Add' : 'Update'}
+                <Button type="submit" disabled={busy}>
+                  {busy ? 'Saving...' : 'Save account'}
                 </Button>
-
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setShowForm(false)}
-                  disabled={saving}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditingId(null);
+                    setForm(emptyForm);
+                  }}
                 >
                   Cancel
                 </Button>
@@ -234,11 +352,38 @@ export default function WhatsappConnectPage() {
         </CardContent>
       </Card>
 
-      {hasData && (
-        <ConnectionRecords key={tenantId} tenantId={tenantId} kind="whatsapp-connect/numbers" />
-      )}
-
-      <Toast toast={toast} onClose={() => setToast(null)} />
+      {selected && !loadError ? (
+        <section
+          aria-label={`Phone numbers for account ${selected.businessAccountId}`}
+          className="space-y-2"
+        >
+          <p className="text-muted-foreground text-sm">
+            Numbers for account{' '}
+            <span className="text-foreground font-medium break-all">
+              {selected.businessAccountId}
+            </span>
+          </p>
+          <fieldset disabled={busy || editingId !== null} className="min-w-0">
+            <ConnectionRecords
+              key={`${tenantId}:${selected.id}`}
+              tenantId={tenantId}
+              kind={`whatsapp-accounts/${selected.id}/numbers`}
+            />
+          </fieldset>
+        </section>
+      ) : loaded && !loadError ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PhoneIcon className="size-4" aria-hidden="true" />
+              WhatsApp numbers
+            </CardTitle>
+            <CardDescription>
+              Save a WhatsApp account first to add its phone numbers.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
     </div>
   );
 }

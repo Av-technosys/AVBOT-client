@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toast, ToastState } from '@/components/notification-toast';
+import { toast } from 'sonner';
 import { TenantBreadcrumb } from '@/components/tenant-breadcrumb';
 import { getTenant, updateTenant } from '@/lib/api';
 
@@ -22,7 +22,6 @@ export default function TenantEditPage() {
 
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<ToastState>(null);
 
   useEffect(() => {
     getTenant(tenantId)
@@ -32,12 +31,7 @@ export default function TenantEditPage() {
         setPhone(res.data.phone ?? '');
         setEmail(res.data.email);
       })
-      .catch((err) =>
-        setToast({
-          message: err instanceof Error ? err.message : 'Failed to load tenant',
-          type: 'error',
-        }),
-      )
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Failed to load tenant'))
       .finally(() => setLoaded(true));
   }, [tenantId]);
 
@@ -47,14 +41,11 @@ export default function TenantEditPage() {
 
     try {
       await updateTenant(tenantId, { name, companyName, phone, email });
-      setToast({ message: 'Tenant updated', type: 'success' });
+      toast.success('Tenant updated');
 
       setTimeout(() => router.push(`/tenant/${tenantId}`), 2000);
     } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : 'Failed to save tenant',
-        type: 'error',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to save tenant');
       setLoading(false);
     }
   }
@@ -102,7 +93,6 @@ export default function TenantEditPage() {
           </form>
         </CardContent>
       </Card>
-      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

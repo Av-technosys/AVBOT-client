@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toast, ToastState } from '@/components/notification-toast';
+import { toast } from 'sonner';
 import { createTenant, deleteTenant, listTenants, type Tenant } from '@/lib/api';
 
 export default function TenantListPage() {
@@ -23,7 +23,6 @@ export default function TenantListPage() {
 
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [toast, setToast] = useState<ToastState>(null);
 
   async function loadTenants() {
     const res = await listTenants();
@@ -53,12 +52,9 @@ export default function TenantListPage() {
       setEmail('');
       setShowAddForm(false);
       await loadTenants();
-      setToast({ message: 'Tenant added', type: 'success' });
+      toast.success('Tenant added');
     } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : 'Failed to create tenant',
-        type: 'error',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to create tenant');
     } finally {
       setLoading(false);
     }
@@ -73,12 +69,9 @@ export default function TenantListPage() {
     try {
       await deleteTenant(String(tenant.tenantId));
       setTenants((prev) => prev.filter((t) => t.tenantId !== tenant.tenantId));
-      setToast({ message: 'Tenant deleted', type: 'success' });
+      toast.success('Tenant deleted');
     } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : 'Failed to delete tenant',
-        type: 'error',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to delete tenant');
     } finally {
       setDeletingId(null);
     }
@@ -145,11 +138,22 @@ export default function TenantListPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => router.push(`/tenant/${tenant.tenantId}/edit`)}
+                  onClick={() =>
+                    router.push(
+                      `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/edit`,
+                    )
+                  }
                 >
                   Edit
                 </Button>
-                <Button size="sm" onClick={() => router.push(`/tenant/${tenant.tenantId}`)}>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    router.push(
+                      `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}`,
+                    )
+                  }
+                >
                   Visit
                 </Button>
                 <Button
@@ -166,8 +170,6 @@ export default function TenantListPage() {
         ))}
         {tenants.length === 0 && <p className="text-muted-foreground text-sm">No tenants yet.</p>}
       </div>
-
-      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

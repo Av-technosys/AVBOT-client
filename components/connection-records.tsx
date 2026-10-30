@@ -1,6 +1,8 @@
 'use client';
 
+import { toast } from 'sonner';
 import { useEffect, useState } from 'react';
+import { PhoneIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,14 +41,13 @@ export function ConnectionRecords({
   tenantId: string;
   kind: ConnectionRecordKind;
 }) {
-  const mappings = kind === 'salesforce-connect/api-mappings';
+  const mappings = kind.endsWith('/api-mappings');
   const [records, setRecords] = useState<ConnectionRecord[]>([]);
   const [editing, setEditing] = useState<ConnectionRecord | null>(null);
   const [mappingValues, setMappingValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -81,14 +82,12 @@ export function ConnectionRecords({
     }
     setMappingValues(values);
     setError('');
-    setNotice('');
   }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!editing) return;
     setError('');
-    setNotice('');
     const fieldMapping: Record<string, unknown> = mappings ? { ...mappingValues } : {};
     setBusy(true);
     try {
@@ -100,9 +99,11 @@ export function ConnectionRecords({
         editing.id ? previous.map((row) => (row.id === data.id ? data : row)) : [...previous, data],
       );
       setEditing(null);
-      setNotice('Saved successfully.');
+      toast.success(mappings ? 'API mapping saved' : 'WhatsApp number saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      const message = err instanceof Error ? err.message : 'Save failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -113,14 +114,15 @@ export function ConnectionRecords({
       return;
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       await deleteConnectionRecord(tenantId, kind, record.id);
       setRecords((previous) => previous.filter((row) => row.id !== record.id));
       if (editing?.id === record.id) setEditing(null);
-      setNotice('Deleted successfully.');
+      toast.success(mappings ? 'API mapping deleted' : 'WhatsApp number deleted');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      const message = err instanceof Error ? err.message : 'Delete failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -129,7 +131,15 @@ export function ConnectionRecords({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{mappings ? 'API Mappings' : 'WhatsApp Numbers'}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          {!mappings && <PhoneIcon className="size-4" aria-hidden="true" />}
+          {mappings ? 'API Mappings' : 'WhatsApp numbers'}
+        </CardTitle>
+        {!mappings && (
+          <p className="text-muted-foreground text-sm">
+            Add one or more business phone numbers to the selected account.
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
@@ -143,11 +153,6 @@ export function ConnectionRecords({
               Reload
             </Button>
           </div>
-        )}
-        {notice && (
-          <p role="status" className="text-sm">
-            {notice}
-          </p>
         )}
         {loading ? (
           <p>Loading...</p>
@@ -264,10 +269,11 @@ export function ConnectionRecords({
               ) : (
                 <>
                   <label className="block space-y-2">
-                    <span>Number ID</span>
+                    <span>WhatsApp Phone Number ID</span>
                     <Input
                       required
                       maxLength={512}
+                      placeholder="Phone number ID from Meta"
                       value={editing.numberId ?? ''}
                       onChange={(e) => setEditing({ ...editing, numberId: e.target.value })}
                     />
@@ -278,6 +284,7 @@ export function ConnectionRecords({
                       required
                       type="tel"
                       maxLength={512}
+                      placeholder="+919876543210"
                       value={editing.phoneNumber ?? ''}
                       onChange={(e) => setEditing({ ...editing, phoneNumber: e.target.value })}
                     />
