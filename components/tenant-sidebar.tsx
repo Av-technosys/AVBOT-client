@@ -7,6 +7,7 @@ import {
   ArrowLeftIcon,
   Building2Icon,
   ChevronDownIcon,
+  ImagesIcon,
   MessageCircleIcon,
   PlugIcon,
   UsersIcon,
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/sidebar';
 
 const tenantNavItems = [
+  { title: 'Media', path: 'media', icon: ImagesIcon },
   { title: 'Contacts', path: 'contacts', icon: UsersIcon },
   { title: 'Salesforce Account', path: 'salesforce-connect', icon: PlugIcon },
   { title: 'WhatsApp', path: 'whatsapp', icon: MessageCircleIcon },

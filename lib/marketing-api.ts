@@ -1,5 +1,10 @@
 import { request, type Contact } from './api';
-export type Binding = { source: 'fixed' | 'contact'; value: string; fallback?: string };
+export type Binding = {
+  source: 'fixed' | 'contact';
+  value: string;
+  fallback?: string;
+  mediaSlug?: string;
+};
 export type RuntimeConfig = Record<string, Record<string, Binding>>;
 export type Audience = {
   selection: { mode: 'selected'; ids: string[] } | { mode: 'all'; excludedIds: string[] };
@@ -113,14 +118,17 @@ export const enrollmentPage = (tenant: string, campaign: string, run: string, pa
   request<{ data: Page<Enrollment> }>(`${runPath(tenant, campaign, run)}/enrollments`, {
     params: { page },
   });
-export const uploadRunMedia = (tenant: string, campaign: string, run: string, file: File) =>
-  request<{ data: { id: string; filename: string; mimeType: string; size: number } }>(
-    `${runPath(tenant, campaign, run)}/media`,
-    {
-      method: 'POST',
-      data: file,
-      params: { filename: file.name },
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      timeout: 130000,
-    },
-  );
+export const selectRunMedia = (
+  tenant: string,
+  campaign: string,
+  run: string,
+  mediaSlug: string,
+  format: string,
+) =>
+  request<{
+    data: { id: string; filename: string; mimeType: string; size: number; mediaSlug: string };
+  }>(`${runPath(tenant, campaign, run)}/media`, {
+    method: 'POST',
+    data: { mediaSlug, format },
+    timeout: 130000,
+  });

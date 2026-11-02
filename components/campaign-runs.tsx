@@ -1,7 +1,8 @@
 'use client';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { TenantMediaPicker } from '@/components/tenant-media-picker';
+import type { TenantMedia } from '@/lib/media-api';
 import { PlayIcon, XIcon, RefreshCwIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import {
   runAction,
   audiencePage,
   enrollmentPage,
-  uploadRunMedia,
+  selectRunMedia,
   type Audience,
   type CampaignRun,
   type RuntimeConfig,
@@ -194,14 +195,6 @@ function RunDialog({
   const [accounts, setAccounts] = useState<WhatsappAccount[]>([]);
   const [salesforce, setSalesforce] = useState<SalesforceAccount[]>([]);
   const [numbers, setNumbers] = useState<ConnectionRecord[]>([]);
-  const mediaUrls = useRef<string[]>([]);
-  const [localMedia, setLocalMedia] = useState<Record<string, { url: string; type: string }>>({});
-  useEffect(
-    () => () => {
-      mediaUrls.current.forEach((url) => URL.revokeObjectURL(url));
-    },
-    [],
-  );
   const [config, setConfig] = useState<RuntimeConfig>(initial.runtimeConfig);
   const [preview, setPreview] = useState<RunPreview | null>(null);
   const [contacts, setContacts] = useState<Page<Contact> | null>(null);
@@ -336,29 +329,29 @@ function RunDialog({
   function binding(nodeId: string, key: string, value: Binding) {
     setConfig((c) => ({ ...c, [nodeId]: { ...c[nodeId], [key]: value } }));
   }
-  async function upload(nodeId: string, file: File, format?: string) {
-    await perform(async () => {
-      const expected = format?.toLowerCase();
-      if (
-        (expected === 'image' && !file.type.startsWith('image/')) ||
-        (expected === 'video' && !file.type.startsWith('video/')) ||
-        (expected === 'document' &&
-          (file.type.startsWith('image/') || file.type.startsWith('video/')))
-      )
-        throw new Error(`Choose a ${expected} file for this template`);
-      const { data } = await uploadRunMedia(tenant, campaignId, run.id, file);
-      const url = URL.createObjectURL(file);
-      mediaUrls.current.push(url);
-      setLocalMedia((m) => ({ ...m, [nodeId]: { url, type: file.type } }));
+  async function selectMedia(nodeId: string, file: TenantMedia | null, format?: string) {
+    if (!file) {
       setConfig((c) => ({
         ...c,
         [nodeId]: {
           ...c[nodeId],
-          'header.media': { source: 'fixed', value: `id:${data.id}` },
+          'header.media': { source: 'fixed', value: '' },
+          'header.filename': { source: 'fixed', value: '' },
+        },
+      }));
+      return;
+    }
+    await perform(async () => {
+      const { data } = await selectRunMedia(tenant, campaignId, run.id, file.slug, format ?? '');
+      setConfig((c) => ({
+        ...c,
+        [nodeId]: {
+          ...c[nodeId],
+          'header.media': { source: 'fixed', value: `id:${data.id}`, mediaSlug: file.slug },
           'header.filename': { source: 'fixed', value: data.filename },
         },
       }));
-      toast.success('File uploaded to WhatsApp. Save to keep this selection.');
+      toast.success('Media selected. Save to keep this selection.');
     });
   }
   async function stop(path = 'stop') {
@@ -635,6 +628,28 @@ function RunDialog({
                         )}
                         {node.fields.map((field) => {
                           const b = config[node.id]?.[field.key] ?? { source: 'fixed', value: '' };
+                          if (field.kind === 'media')
+                            return (
+                              <div key={field.key} className="space-y-2">
+                                <label
+                                  className="text-sm font-medium"
+                                  htmlFor={`${node.id}-${field.key}`}
+                                >
+                                  {field.format?.toLowerCase()} from media gallery
+                                </label>
+                                <TenantMediaPicker
+                                  tenant={tenant}
+                                  format={field.format}
+                                  value={b.mediaSlug}
+                                  id={`${node.id}-${field.key}`}
+                                  hasSelection={!!b.value}
+                                  disabled={busy}
+                                  onSelect={(file) => {
+                                    void selectMedia(node.id, file, field.format);
+                                  }}
+                                />
+                              </div>
+                            );
                           return (
                             <div key={field.key} className="space-y-2">
                               <label
@@ -664,9 +679,7 @@ function RunDialog({
                                   placeholder={
                                     b.source === 'contact'
                                       ? 'name, email, customData.propertyName'
-                                      : field.kind === 'media'
-                                        ? 'https://… or upload a file'
-                                        : 'Enter value'
+                                      : 'Enter value'
                                   }
                                   value={b.value}
                                   onChange={(e) =>
@@ -691,88 +704,6 @@ function RunDialog({
                                     Fields: name, phone, whatsappPhoneNumber, email, location, city,
                                     state, country, source, customData.key
                                   </p>
-                                </>
-                              )}
-                              {field.kind === 'media' && (
-                                <>
-                                  <input
-                                    type="file"
-                                    aria-label={`Upload ${field.format?.toLowerCase()}`}
-                                    accept={
-                                      field.format === 'IMAGE'
-                                        ? 'image/jpeg,image/png'
-                                        : field.format === 'VIDEO'
-                                          ? 'video/mp4,video/3gpp'
-                                          : '.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx'
-                                    }
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) upload(node.id, file, field.format);
-                                    }}
-                                  />
-                                  {localMedia[node.id]?.type.startsWith('image/') && (
-                                    <Image
-                                      src={localMedia[node.id].url}
-                                      alt="Selected template image"
-                                      width={320}
-                                      height={200}
-                                      unoptimized
-                                      className="max-h-48 rounded-lg object-contain"
-                                    />
-                                  )}
-                                  {localMedia[node.id]?.type.startsWith('video/') && (
-                                    <video
-                                      src={localMedia[node.id].url}
-                                      controls
-                                      className="max-h-48 rounded-lg"
-                                    />
-                                  )}
-                                  {localMedia[node.id] && (
-                                    <a
-                                      href={localMedia[node.id].url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-primary block text-xs underline"
-                                    >
-                                      Preview selected file
-                                    </a>
-                                  )}
-                                  {config[node.id]?.['header.filename']?.value && (
-                                    <p className="text-muted-foreground text-xs">
-                                      Selected: {config[node.id]['header.filename'].value}
-                                    </p>
-                                  )}
-                                  {/^https:\/\//.test(b.value) && (
-                                    <a
-                                      href={b.value}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-primary block text-xs underline"
-                                    >
-                                      Preview media
-                                    </a>
-                                  )}
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setLocalMedia((m) => {
-                                        const copy = { ...m };
-                                        delete copy[node.id];
-                                        return copy;
-                                      });
-                                      setConfig((c) => ({
-                                        ...c,
-                                        [node.id]: {
-                                          ...c[node.id],
-                                          'header.media': { source: 'fixed', value: '' },
-                                          'header.filename': { source: 'fixed', value: '' },
-                                        },
-                                      }));
-                                    }}
-                                  >
-                                    Remove file selection
-                                  </Button>
                                 </>
                               )}
                             </div>
