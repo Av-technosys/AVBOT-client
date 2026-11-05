@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/sidebar';
 
 const tenantNavItems = [
+  { title: 'Chat inbox', path: 'chat', icon: MessageCircleIcon },
   { title: 'Media', path: 'media', icon: ImagesIcon },
   { title: 'Contacts', path: 'contacts', icon: UsersIcon },
   { title: 'Salesforce Account', path: 'salesforce-connect', icon: PlugIcon },
