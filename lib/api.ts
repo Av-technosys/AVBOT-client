@@ -3,6 +3,7 @@ import { NEXT_PUBLIC_API_BASE_URL } from '@/lib/env';
 
 const client = axios.create({
   baseURL: NEXT_PUBLIC_API_BASE_URL,
+  allowAbsoluteUrls: false,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -29,8 +30,21 @@ function newRequestId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-client.interceptors.request.use((config) => {
+let getSessionToken: (() => Promise<string | null>) | undefined;
+
+export function registerApiTokenGetter(getToken: () => Promise<string | null>) {
+  getSessionToken = getToken;
+  return () => {
+    if (getSessionToken === getToken) getSessionToken = undefined;
+  };
+}
+
+client.interceptors.request.use(async (config) => {
   config.headers.set('X-Request-ID', newRequestId());
+  if (!config.headers.has('Authorization') && getSessionToken) {
+    const token = await getSessionToken();
+    if (token) config.headers.set('Authorization', `Bearer ${token}`);
+  }
   return config;
 });
 
@@ -66,7 +80,7 @@ export type Tenant = {
   companyName: string | null;
   phone: string | null;
   email: string;
-  bearerToken: string;
+  bearerToken?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -143,6 +157,10 @@ export type SalesforceAccountInput = Pick<
   | 'grantType'
   | 'syncObjects'
 >;
+export type SalesforceAccountSummary = Pick<
+  SalesforceAccount,
+  'id' | 'tenantId' | 'username' | 'salesforceApiUrl' | 'syncObjects'
+>;
 
 export type WhatsappAccount = {
   id: string;
@@ -208,7 +226,7 @@ export function deleteTenant(tenantId: string) {
 
 // Salesforce Connect
 export function listSalesforceAccounts(tenantId: string) {
-  return request<{ data: SalesforceAccount[] }>(
+  return request<{ data: SalesforceAccountSummary[] }>(
     `/tenants/${encodeURIComponent(tenantId)}/salesforce-accounts`,
   );
 }

@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
+import { useConsoleUser } from '@/components/console-session';
 import { TenantSidebar } from '@/components/tenant-sidebar';
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -17,14 +17,9 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { BarChart3Icon, LogOutIcon, SettingsIcon, UsersIcon } from 'lucide-react';
+import { SettingsIcon, UsersIcon } from 'lucide-react';
 
 const userNavItems = [
-  {
-    title: 'Dashboard',
-    href: '/',
-    icon: BarChart3Icon,
-  },
   {
     title: 'Tenants',
     href: '/tenant',
@@ -44,6 +39,7 @@ export function UserSidebar() {
 
 function MainSidebar() {
   const pathname = usePathname();
+  const user = useConsoleUser();
   const { setOpenMobile } = useSidebar();
 
   return (
@@ -71,10 +67,16 @@ function MainSidebar() {
               {userNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    render={<Link href={item.href} onNavigate={() => setOpenMobile(false)} />}
+                    render={
+                      <Link
+                        href={user.isAdmin && item.href === '/tenant' ? '/admin' : item.href}
+                        onNavigate={() => setOpenMobile(false)}
+                      />
+                    }
                     tooltip={item.title}
-                    isActive={pathname === item.href}
-                    aria-current={pathname === item.href ? 'page' : undefined}
+                    isActive={
+                      pathname === item.href || (pathname === '/admin' && item.href === '/tenant')
+                    }
                   >
                     <item.icon />
                     <span>{item.title}</span>
@@ -85,20 +87,6 @@ function MainSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              tooltip="Logout"
-              type="button"
-            >
-              <LogOutIcon />
-              <span>Logout</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { generateTenantBearerToken, getTenant, type Tenant } from '@/lib/api';
+import { canManageTenant, useConsoleUser } from '@/components/console-session';
 
 export default function TenantDetailPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
@@ -16,6 +17,7 @@ export default function TenantDetailPage() {
 
 function TenantDetail({ tenantId }: { tenantId: string }) {
   const router = useRouter();
+  const user = useConsoleUser();
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
@@ -88,12 +90,14 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
           <h1 className="text-2xl font-semibold">{tenant.name}</h1>
           <p className="text-muted-foreground text-sm">{tenant.email}</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => router.push(`/tenant/${encodeURIComponent(tenantId)}/edit`)}
-        >
-          <PencilIcon /> Edit
-        </Button>
+        {canManageTenant(user) && (
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/tenant/${encodeURIComponent(tenantId)}/edit`)}
+          >
+            <PencilIcon /> Edit
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -121,29 +125,31 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRoundIcon className="size-4" /> Bearer Token
-          </CardTitle>
-          <CardDescription>View, copy, or generate a new token for this tenant.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="bg-muted/40 rounded-md border p-3 font-mono text-sm break-all">
-            {tenant.bearerToken}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleCopyBearerToken}>
-              <CopyIcon />
-              Copy
-            </Button>
-            <Button variant="outline" onClick={handleGenerateBearerToken} disabled={generating}>
-              <RefreshCcwIcon />
-              {generating ? 'Generating...' : 'Generate New Token'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {tenant.bearerToken && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRoundIcon className="size-4" /> Bearer Token
+            </CardTitle>
+            <CardDescription>View, copy, or generate a new token for this tenant.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="bg-muted/40 rounded-md border p-3 font-mono text-sm break-all">
+              {tenant.bearerToken}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={handleCopyBearerToken}>
+                <CopyIcon />
+                Copy
+              </Button>
+              <Button variant="outline" onClick={handleGenerateBearerToken} disabled={generating}>
+                <RefreshCcwIcon />
+                {generating ? 'Generating...' : 'Generate New Token'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

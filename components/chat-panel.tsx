@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getTenant } from '@/lib/api';
 import { fileMime, MEDIA_ACCEPT, type TenantMedia } from '@/lib/media-api';
 import {
   chatAttachmentBlob,
@@ -59,8 +58,7 @@ export function TenantChat({ tenant }: { tenant: string }) {
     let timer: ReturnType<typeof setTimeout>;
     async function connect() {
       try {
-        const { data: details } = await getTenant(tenant);
-        const { data } = await createChatSession(details.bearerToken);
+        const { data } = await createChatSession(tenant);
         if (active) {
           setSession(data);
           setError('');
@@ -72,7 +70,10 @@ export function TenantChat({ tenant }: { tenant: string }) {
           );
         }
       } catch (err) {
-        if (active) setError((err as Error).message);
+        if (active) {
+          setSession(null);
+          setError((err as Error).message);
+        }
       }
     }
     void connect();

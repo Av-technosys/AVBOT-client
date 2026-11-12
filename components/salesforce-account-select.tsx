@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { listSalesforceAccounts, type SalesforceAccount } from '@/lib/api';
+import { listSalesforceAccounts, type SalesforceAccountSummary } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
@@ -15,7 +15,7 @@ export function SalesforceAccountSelect({
   onChange: (accountId: string) => void;
 }) {
   const [result, setResult] = useState<{
-    accounts: SalesforceAccount[];
+    accounts: SalesforceAccountSummary[];
     error: string;
   } | null>(null);
   const [reload, setReload] = useState(0);

@@ -10,9 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { createTenant, deleteTenant, listTenants, type Tenant } from '@/lib/api';
+import { canManageTenant, useConsoleUser } from '@/components/console-session';
 
 export default function TenantListPage() {
   const router = useRouter();
+  const user = useConsoleUser();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -32,9 +34,13 @@ export default function TenantListPage() {
   useEffect(() => {
     let cancelled = false;
 
-    listTenants().then((res) => {
-      if (!cancelled) setTenants(res.data);
-    });
+    listTenants()
+      .then((res) => {
+        if (!cancelled) setTenants(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : 'Failed to load tenants');
+      });
 
     return () => {
       cancelled = true;
@@ -81,9 +87,11 @@ export default function TenantListPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Tenants</h1>
-        <Button onClick={() => setShowAddForm((prev) => !prev)}>
-          <PlusIcon /> Add Tenant
-        </Button>
+        {user.isAdmin && (
+          <Button onClick={() => setShowAddForm((prev) => !prev)}>
+            <PlusIcon /> Add Tenant
+          </Button>
+        )}
       </div>
 
       {showAddForm && (
@@ -129,23 +137,38 @@ export default function TenantListPage() {
       <div className="flex flex-col gap-2">
         {tenants.map((tenant) => (
           <Card key={tenant.tenantId}>
-            <CardContent className="flex items-center justify-between gap-4">
+            <CardContent className="flex flex-wrap items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="truncate font-medium">{tenant.name}</p>
                 <p className="text-muted-foreground truncate text-sm">{tenant.email}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    router.push(
-                      `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/edit`,
-                    )
-                  }
-                >
-                  Edit
-                </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {canManageTenant(user) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      router.push(
+                        `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/users`,
+                      )
+                    }
+                  >
+                    Users
+                  </Button>
+                )}
+                {canManageTenant(user) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      router.push(
+                        `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/edit`,
+                      )
+                    }
+                  >
+                    Edit
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   onClick={() =>
@@ -156,14 +179,16 @@ export default function TenantListPage() {
                 >
                   Visit
                 </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDelete(tenant)}
-                  disabled={deletingId === tenant.tenantId}
-                >
-                  {deletingId === tenant.tenantId ? 'Deleting...' : 'Delete'}
-                </Button>
+                {user.isAdmin && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDelete(tenant)}
+                    disabled={deletingId === tenant.tenantId}
+                  >
+                    {deletingId === tenant.tenantId ? 'Deleting...' : 'Delete'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

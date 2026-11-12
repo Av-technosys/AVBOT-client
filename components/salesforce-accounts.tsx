@@ -8,17 +8,20 @@ import { SalesforceAccountForm } from '@/components/salesforce-account-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TenantBreadcrumb } from '@/components/tenant-breadcrumb';
-import { listSalesforceAccounts, type SalesforceAccount } from '@/lib/api';
+import { listSalesforceAccounts, type SalesforceAccountSummary } from '@/lib/api';
+import { canManageTenant, useConsoleUser } from '@/components/console-session';
 import { salesforceAccountPath, salesforceSyncLabel } from '@/lib/salesforce-account';
 
 export default function SalesforceConnectPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
+  const user = useConsoleUser();
+  if (!canManageTenant(user)) return <p role="alert">Tenant administrator access is required.</p>;
   return <SalesforceAccounts key={tenantId} tenantId={tenantId} />;
 }
 
 function SalesforceAccounts({ tenantId }: { tenantId: string }) {
   const router = useRouter();
-  const [accounts, setAccounts] = useState<SalesforceAccount[]>([]);
+  const [accounts, setAccounts] = useState<SalesforceAccountSummary[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState('');

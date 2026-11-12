@@ -56,11 +56,9 @@ export type ChatHistory = {
   isBlocked: boolean;
 };
 
-export function createChatSession(bearerToken: string, parentOrigin?: string) {
-  return request<{ data: ChatSession }>('/chat/sessions', {
+export function createChatSession(tenant: string) {
+  return request<{ data: ChatSession }>(`/tenants/${encodeURIComponent(tenant)}/chat/session`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${bearerToken}` },
-    data: { parentOrigin },
   });
 }
 export async function chatRequest<T>(token: string, path: string, init: RequestInit = {}) {

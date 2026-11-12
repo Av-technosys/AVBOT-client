@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useId, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { canManageTenant, useConsoleUser } from '@/components/console-session';
 import {
   ArrowLeftIcon,
   Building2Icon,
@@ -34,6 +35,7 @@ const tenantNavItems = [
   { title: 'Chat inbox', path: 'chat', icon: MessageCircleIcon },
   { title: 'Media', path: 'media', icon: ImagesIcon },
   { title: 'Contacts', path: 'contacts', icon: UsersIcon },
+  { title: 'Users', path: 'users', icon: UsersIcon },
   { title: 'Salesforce Account', path: 'salesforce-connect', icon: PlugIcon },
   { title: 'WhatsApp', path: 'whatsapp', icon: MessageCircleIcon },
   { title: 'Marketing Campaign Flow', path: 'campaigns', icon: WorkflowIcon },
@@ -106,6 +108,7 @@ function WhatsappMenu({ tenantPath, pathname }: { tenantPath: string; pathname: 
 
 export function TenantSidebar({ tenantId }: { tenantId: string }) {
   const pathname = usePathname();
+  const user = useConsoleUser();
   const { setOpenMobile } = useSidebar();
   const tenantPath = `/tenant/${encodeURIComponent(tenantId)}`;
 
@@ -132,7 +135,7 @@ export function TenantSidebar({ tenantId }: { tenantId: string }) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              render={<Link href="/tenant" onNavigate={() => setOpenMobile(false)} />}
+              render={<Link href={user.isAdmin ? '/admin' : '/tenant'} onNavigate={() => setOpenMobile(false)} />}
               tooltip="Back to tenants"
             >
               <ArrowLeftIcon />
@@ -147,6 +150,7 @@ export function TenantSidebar({ tenantId }: { tenantId: string }) {
           <SidebarGroupContent>
             <SidebarMenu>
               {tenantNavItems.map((item) => {
+                if ((item.path === 'users' || item.path === 'salesforce-connect') && !canManageTenant(user)) return null;
                 const href = `${tenantPath}/${item.path}`;
                 if (item.path === 'whatsapp') {
                   return (

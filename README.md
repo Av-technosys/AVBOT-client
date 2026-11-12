@@ -2,6 +2,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+The console uses Clerk sign-in at `/sign-in` and platform administrator sign-in at
+`/admin/sign-in`. See the [server setup](../server/README.md#clerk-console-authentication)
+for the environment variables, session claims and tenant membership requirements.
+
 First, run the development server:
 
 ```bash

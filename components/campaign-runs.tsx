@@ -12,7 +12,7 @@ import {
   listSalesforceAccounts,
   listConnectionRecords,
   type WhatsappAccount,
-  type SalesforceAccount,
+  type SalesforceAccountSummary,
   type ConnectionRecord,
 } from '@/lib/api';
 import {
@@ -193,7 +193,7 @@ function RunDialog({
   const [accountId, setAccountId] = useState(initial.whatsappConnectId ?? '');
   const [numberId, setNumberId] = useState(initial.whatsappConnectNumberId ?? '');
   const [accounts, setAccounts] = useState<WhatsappAccount[]>([]);
-  const [salesforce, setSalesforce] = useState<SalesforceAccount[]>([]);
+  const [salesforce, setSalesforce] = useState<SalesforceAccountSummary[]>([]);
   const [numbers, setNumbers] = useState<ConnectionRecord[]>([]);
   const [config, setConfig] = useState<RuntimeConfig>(initial.runtimeConfig);
   const [preview, setPreview] = useState<RunPreview | null>(null);
