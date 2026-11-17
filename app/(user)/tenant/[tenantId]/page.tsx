@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { CopyIcon, KeyRoundIcon, PencilIcon, RefreshCcwIcon } from 'lucide-react';
 
+import { TenantMessageAnalytics } from '@/components/tenant-message-analytics';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -99,6 +100,8 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
           </Button>
         )}
       </div>
+
+      <TenantMessageAnalytics tenant={tenantId} />
 
       <Card>
         <CardHeader>

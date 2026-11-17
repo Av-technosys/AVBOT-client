@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import { NEXT_PUBLIC_API_BASE_URL } from '@/lib/env';
+import type { ContactFilters } from './contact-lists-api';
 
 const client = axios.create({
   baseURL: NEXT_PUBLIC_API_BASE_URL,
@@ -536,9 +537,15 @@ export type ContactPage = {
     hasNextPage: boolean;
   };
 };
-export function listContacts(tenant: string, page: number, pageSize: number, signal?: AbortSignal) {
+export function listContacts(
+  tenant: string,
+  page: number,
+  pageSize: number,
+  signal?: AbortSignal,
+  filters?: ContactFilters,
+) {
   return request<ContactPage>(`/tenants/${encodeURIComponent(tenant)}/contacts`, {
-    params: { page, pageSize },
+    params: { page, pageSize, ...filters },
     signal,
   });
 }
@@ -563,17 +570,25 @@ export function deleteContact(tenant: string, contactId: string) {
 export type ContactSelection =
   { mode: 'selected'; ids: string[] } | { mode: 'all'; excludedIds: string[] };
 
-export function deleteSelectedContacts(tenant: string, selection: ContactSelection) {
+export function deleteSelectedContacts(
+  tenant: string,
+  selection: ContactSelection,
+  filters?: ContactFilters,
+) {
   return request<{ data: { deleted: number } }>(
     `/tenants/${encodeURIComponent(tenant)}/contacts/bulk`,
-    { method: 'DELETE', data: selection },
+    { method: 'DELETE', data: filters ? { selection, filters } : selection },
   );
 }
 
-export function exportSelectedContacts(tenant: string, selection: ContactSelection) {
+export function exportSelectedContacts(
+  tenant: string,
+  selection: ContactSelection,
+  filters?: ContactFilters,
+) {
   return request<Blob>(`/tenants/${encodeURIComponent(tenant)}/contacts/export`, {
     method: 'POST',
-    data: selection,
+    data: filters ? { selection, filters } : selection,
     responseType: 'blob',
   });
 }

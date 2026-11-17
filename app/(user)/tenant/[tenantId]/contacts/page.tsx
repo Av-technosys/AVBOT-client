@@ -18,11 +18,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { TenantBreadcrumb } from '@/components/tenant-breadcrumb';
+import { ContactSearchFields, contactSelectionCount } from '@/components/contact-picker';
+import type { ContactFilters } from '@/lib/contact-lists-api';
+import { ContactListsDialog, type ContactListsMode } from '@/components/contact-lists-dialog';
 import { SalesforceCsvImport } from '@/components/salesforce-csv-import';
 import { SalesforceAccountSelect } from '@/components/salesforce-account-select';
 import { toast } from 'sonner';
 import {
   listContacts,
+  listSalesforceAccounts,
+  type SalesforceAccountSummary,
   getContact,
   saveContact,
   deleteContact,
@@ -118,7 +123,6 @@ function ContactsTenantRoute({ tenant }: { tenant: string }) {
   const pageSize = pageSizes.includes(requestedSize) ? requestedSize : 25;
   return (
     <TenantContacts
-      key={`${page}:${pageSize}`}
       tenant={tenant}
       page={page}
       pageSize={pageSize}
@@ -148,14 +152,20 @@ function TenantContacts({
   onSelectionChange: (selection: ContactSelection) => void;
 }) {
   const router = useRouter();
-  const [result, setResult] = useState<ContactPage | null>(null);
-  const [loadError, setLoadError] = useState('');
+  const [filters, setFilters] = useState<ContactFilters>({ searchField: 'name' });
+  const [salesforce, setSalesforce] = useState<SalesforceAccountSummary[]>();
+  const [loaded, setLoaded] = useState<{ key: string; data?: ContactPage; error?: string }>();
+  const filtered = Boolean(filters.q?.trim() || filters.salesforceConnectId);
   const [reload, setReload] = useState(0);
+  const requestKey = JSON.stringify([page, pageSize, filters, reload]);
+  const result = loaded?.key === requestKey ? loaded.data : undefined;
+  const loadError = loaded?.key === requestKey ? loaded.error : undefined;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ContactForm>(emptyForm);
   const [viewing, setViewing] = useState<Contact | null>(null);
   const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [listMode, setListMode] = useState<ContactListsMode | null>(null);
   const goToPage = useCallback(
     (target: number, size = pageSize, replace = false) => {
       const params = new URLSearchParams(queryString);
@@ -169,28 +179,51 @@ function TenantContacts({
   );
 
   useEffect(() => {
-    const controller = new AbortController();
-    listContacts(tenant, page, pageSize, controller.signal)
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        // Handles a removed last page or an out-of-range bookmarked URL.
-        if (page > data.pagination.totalPages) {
-          goToPage(data.pagination.totalPages, pageSize, true);
-          return;
-        }
-        setResult(data);
-        setLoadError('');
+    let active = true;
+    listSalesforceAccounts(tenant)
+      .then(({ data }) => {
+        if (active && data.length) setSalesforce(data);
       })
-      .catch((error: Error) => {
-        if (!controller.signal.aborted) setLoadError(error.message);
+      .catch(() => {
+        if (active) toast.error('Could not load the Salesforce account filter');
       });
-    return () => controller.abort();
-  }, [tenant, page, pageSize, reload, goToPage]);
+    return () => {
+      active = false;
+    };
+  }, [tenant]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    function load() {
+      listContacts(tenant, page, pageSize, controller.signal, filters)
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          if (page > data.pagination.totalPages) {
+            goToPage(data.pagination.totalPages, pageSize, true);
+            return;
+          }
+          setLoaded({ key: requestKey, data });
+        })
+        .catch((error: Error) => {
+          if (!controller.signal.aborted) setLoaded({ key: requestKey, error: error.message });
+        });
+    }
+    const timer = filters.q ? setTimeout(load, 250) : undefined;
+    if (!timer) load();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [tenant, page, pageSize, filters, requestKey, goToPage]);
+
+  function changeFilters(value: ContactFilters) {
+    setFilters(value);
+    onSelectionChange(emptySelection);
+    if (page !== 1) goToPage(1, pageSize, true);
+  }
 
   function refreshPage() {
     onSelectionChange(emptySelection);
-    setResult(null);
-    setLoadError('');
     setReload((value) => value + 1);
   }
   function edit(contact?: Contact) {
@@ -285,10 +318,7 @@ function TenantContacts({
   const lastRow = result ? Math.min(page * pageSize, result.pagination.total) : 0;
   const isSelected = (id: string) =>
     selection.mode === 'all' ? !selection.excludedIds.includes(id) : selection.ids.includes(id);
-  const selectedCount =
-    selection.mode === 'all'
-      ? Math.max(0, (result?.pagination.total ?? 0) - selection.excludedIds.length)
-      : selection.ids.length;
+  const selectedCount = contactSelectionCount(selection, result?.pagination.total ?? 0);
   const pageSelectedCount = result?.data.filter((contact) => isSelected(contact.id)).length ?? 0;
   const allPageSelected = !!result?.data.length && pageSelectedCount === result.data.length;
 
@@ -300,7 +330,7 @@ function TenantContacts({
     }
     if (next.size > maxSelectionIds) {
       toast.error(
-        'For more than 1,000 individual selections, use Select all contacts. You can exclude up to 1,000 contacts.',
+        'For more than 1,000 individual selections, use Select all matching contacts. You can exclude up to 1,000 contacts.',
       );
       return;
     }
@@ -315,7 +345,7 @@ function TenantContacts({
     if (pageLocked || !selectedCount) return;
     const target =
       selection.mode === 'all'
-        ? `all contacts for this tenant${selection.excludedIds.length ? ` except ${selection.excludedIds.length} unchecked contacts` : ''}`
+        ? `${selectedCount.toLocaleString('en-IN')} ${filtered ? 'matching contacts' : 'contacts for this tenant'} across all pages${selection.excludedIds.length ? ` (${selection.excludedIds.length} excluded)` : ''}`
         : `${selectedCount} selected contacts`;
     if (
       !window.confirm(
@@ -325,7 +355,7 @@ function TenantContacts({
       return;
     setBusy(true);
     try {
-      const { data } = await deleteSelectedContacts(tenant, selection);
+      const { data } = await deleteSelectedContacts(tenant, selection, filters);
       setViewing(null);
       refreshPage();
       toast.success(`${data.deleted} contacts deleted`);
@@ -340,7 +370,7 @@ function TenantContacts({
     if (pageLocked || !selectedCount) return;
     setBusy(true);
     try {
-      const file = await exportSelectedContacts(tenant, selection);
+      const file = await exportSelectedContacts(tenant, selection, filters);
       const url = URL.createObjectURL(file);
       const link = document.createElement('a');
       link.href = url;
@@ -359,6 +389,17 @@ function TenantContacts({
   return (
     <div className="flex flex-col gap-5">
       <TenantBreadcrumb tenantId={tenant} currentPage="Contacts" />
+      {listMode && (
+        <ContactListsDialog
+          tenant={tenant}
+          mode={listMode}
+          selected={selection}
+          selectedFilters={filters}
+          selectedCount={selectedCount}
+          onClose={() => setListMode(null)}
+          onAdded={() => onSelectionChange(emptySelection)}
+        />
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Contacts</h1>
@@ -367,6 +408,12 @@ function TenantContacts({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={busy} onClick={() => setListMode('manage')}>
+            Manage lists
+          </Button>
+          <Button variant="outline" disabled={busy} onClick={() => setListMode('create')}>
+            Create list
+          </Button>
           <Button variant="outline" disabled={pageLocked} onClick={() => setImportOpen(true)}>
             <UploadIcon /> Import Salesforce CSV
           </Button>
@@ -379,9 +426,11 @@ function TenantContacts({
       <div className="grid gap-4 sm:grid-cols-3" aria-busy={!result && !loadError}>
         {[
           {
-            label: 'Total contacts',
+            label: filtered ? 'Matching contacts' : 'Total contacts',
             value: result?.summary.total,
-            description: 'All contacts for this tenant',
+            description: filtered
+              ? 'Contacts matching the current filters'
+              : 'All contacts for this tenant',
           },
           {
             label: 'Subscribed contacts',
@@ -641,31 +690,48 @@ function TenantContacts({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <fieldset disabled={busy || editingId !== null || importOpen}>
+            <ContactSearchFields
+              filters={filters}
+              onChange={changeFilters}
+              salesforce={salesforce}
+            />
+          </fieldset>
+          {!!result?.pagination.total && selection.mode === 'selected' && (
+            <Button
+              variant="link"
+              className="h-auto p-0"
+              disabled={pageLocked}
+              onClick={() => onSelectionChange({ mode: 'all', excludedIds: [] })}
+            >
+              Select all {result.pagination.total.toLocaleString('en-IN')}{' '}
+              {filtered ? 'matching contacts' : 'contacts'}
+            </Button>
+          )}
           {result && (selection.mode === 'all' || selectedCount > 0) && (
             <div className="bg-muted/30 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div className="space-y-1 text-sm" aria-live="polite">
                 <p>
                   {selection.mode === 'all'
-                    ? `All ${selectedCount.toLocaleString('en-IN')} contacts across every page are selected${selection.excludedIds.length ? ` (${selection.excludedIds.length} excluded)` : ''}.`
+                    ? `${selectedCount.toLocaleString('en-IN')} ${filtered ? 'matching contacts' : 'contacts'} selected across every page${selection.excludedIds.length ? ` (${selection.excludedIds.length} excluded)` : ''}.`
                     : `${selectedCount.toLocaleString('en-IN')} contacts selected.`}
                 </p>
                 {selection.mode === 'all' && (
                   <p className="text-muted-foreground text-xs">
-                    Applies to all contacts present when the action runs, except unchecked contacts.
+                    Applies to contacts matching the current filters when the action runs, except
+                    unchecked contacts.
                   </p>
-                )}
-                {selection.mode === 'selected' && allPageSelected && (
-                  <Button
-                    variant="link"
-                    className="h-auto p-0"
-                    disabled={pageLocked}
-                    onClick={() => onSelectionChange({ mode: 'all', excludedIds: [] })}
-                  >
-                    Select all {result.pagination.total.toLocaleString('en-IN')} contacts
-                  </Button>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pageLocked || !selectedCount}
+                  onClick={() => setListMode('add')}
+                >
+                  Add to list
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -705,9 +771,11 @@ function TenantContacts({
           ) : result.data.length === 0 ? (
             <div className="bg-muted/30 space-y-2 rounded-lg border border-dashed p-8 text-center">
               <UsersIcon className="text-muted-foreground mx-auto size-8" />
-              <p className="font-medium">No contacts yet</p>
+              <p className="font-medium">{filtered ? 'No matching contacts' : 'No contacts yet'}</p>
               <p className="text-muted-foreground text-sm">
-                Add the first contact for this tenant.
+                {filtered
+                  ? 'Try a different search or filter.'
+                  : 'Add the first contact for this tenant.'}
               </p>
             </div>
           ) : (

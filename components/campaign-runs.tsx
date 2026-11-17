@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import { TenantMediaPicker } from '@/components/tenant-media-picker';
 import type { TenantMedia } from '@/lib/media-api';
@@ -28,26 +28,27 @@ import {
   type CampaignRun,
   type RuntimeConfig,
   type RunPreview,
+  type QueuedPreparation,
   type Page,
   type Enrollment,
   type Binding,
 } from '@/lib/marketing-api';
-import type { Contact } from '@/lib/api';
+import {
+  ContactPicker,
+  contactSelectionCount,
+  emptyContactSelection,
+} from '@/components/contact-picker';
+import {
+  getContactLists,
+  type ContactFilters,
+  type ContactList,
+  type ContactPickerPage,
+} from '@/lib/contact-lists-api';
 const selectClass = 'bg-background w-full rounded-md border px-3 py-2 text-sm';
-const searchFields = [
-  ['name', 'Name'],
-  ['email', 'Email'],
-  ['phone', 'Phone number'],
-  ['city', 'City'],
-  ['state', 'State'],
-  ['location', 'Location / area'],
-  ['country', 'Country'],
-  ['all', 'Name, email or phone'],
-] as const;
-
 function searchAudience(audience: Audience | null): Audience {
   if (!audience)
     return { selection: { mode: 'selected', ids: [] }, filters: { searchField: 'name' } };
+  if (audience.selection.mode === 'list') return { selection: audience.selection };
   const filters = audience.filters ?? {};
   const previous = (['city', 'state', 'location', 'country'] as const).filter((key) =>
     filters[key]?.trim(),
@@ -146,7 +147,11 @@ export function CampaignRuns({
             <button
               key={r.id}
               className="hover:bg-muted flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-left text-sm"
-              onClick={() => setOpen(r)}
+              onClick={() => {
+                getRun(tenant, campaignId, r.id)
+                  .then(({ data }) => setOpen(data))
+                  .catch((error) => toast.error(message(error)));
+              }}
             >
               <span>
                 {date(r.createdAt)} · {r.status}
@@ -185,8 +190,11 @@ function RunDialog({
   initial: CampaignRun;
   onClose: () => void;
 }) {
+  const audienceGroup = useId();
   const [run, setRun] = useState(initial);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(
+    initial.preparation?.mode === 'start' ? 3 : initial.preparation?.mode === 'preview' ? 2 : 0,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [audience, setAudience] = useState<Audience>(() => searchAudience(initial.audience));
@@ -196,13 +204,22 @@ function RunDialog({
   const [salesforce, setSalesforce] = useState<SalesforceAccountSummary[]>([]);
   const [numbers, setNumbers] = useState<ConnectionRecord[]>([]);
   const [config, setConfig] = useState<RuntimeConfig>(initial.runtimeConfig);
-  const [preview, setPreview] = useState<RunPreview | null>(null);
-  const [contacts, setContacts] = useState<Page<Contact> | null>(null);
+  const [preview, setPreview] = useState<RunPreview | null>(initial.preparation?.preview ?? null);
+  const [contacts, setContacts] = useState<ContactPickerPage | null>(null);
+  const [contactError, setContactError] = useState('');
+  const [lists, setLists] = useState<ContactList[] | null>(null);
+  const [listError, setListError] = useState('');
+  const listMode = audience.selection.mode === 'list';
+  const listId = audience.selection.mode === 'list' ? audience.selection.listId : undefined;
+  const selectedList = lists?.find((list) => list.id === listId);
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<Page<Enrollment> | null>(null);
   const [recipientPage, setRecipientPage] = useState(1);
   const account = accounts.find((a) => a.id === accountId);
   const draft = run.status === 'DRAFT';
+  const preparation = run.preparation;
+  const preparing = preparation?.status === 'PENDING' || preparation?.status === 'PROCESSING';
+  const preparationFailed = preparation?.status === 'FAILED';
   const refresh = useCallback(async () => {
     const [{ data: entry }, { data: recipients }] = await Promise.all([
       getRun(tenant, campaignId, initial.id),
@@ -234,19 +251,63 @@ function RunDialog({
     };
   }, [tenant, accountId]);
   useEffect(() => {
-    if (!draft) return;
-    let active = true;
-    audiencePage(tenant, campaignId, run.id, page, audience.filters)
+    if (!draft || !listMode) return;
+    const controller = new AbortController();
+    getContactLists(tenant, controller.signal)
       .then(({ data }) => {
-        if (active) setContacts(data);
+        if (!controller.signal.aborted) {
+          setLists(data);
+          setListError('');
+        }
       })
-      .catch((e) => {
-        if (active) setError(message(e));
+      .catch((error) => {
+        if (!controller.signal.aborted) setListError(message(error));
+      });
+    return () => controller.abort();
+  }, [tenant, draft, listMode]);
+  useEffect(() => {
+    if (!draft || listId === '') return;
+    let active = true;
+    audiencePage(tenant, campaignId, run.id, page, audience.filters, listId)
+      .then(({ data }) => {
+        if (active) {
+          const lastPage = Math.max(1, Math.ceil(data.total / data.pageSize));
+          if (page > lastPage) setPage(lastPage);
+          else setContacts(data);
+          setContactError('');
+        }
+      })
+      .catch((error) => {
+        if (active) setContactError(message(error));
       });
     return () => {
       active = false;
     };
-  }, [tenant, campaignId, run.id, page, audience.filters, draft]);
+  }, [tenant, campaignId, run.id, page, audience.filters, listId, draft]);
+  useEffect(() => {
+    if (!draft || !preparing) return;
+    let active = true;
+    let pending = false;
+    const timer = setInterval(async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const { data } = await getRun(tenant, campaignId, initial.id);
+        if (!active) return;
+        setRun(data);
+        if (data.preparation?.preview) setPreview(data.preparation.preview);
+        if (data.status === 'RUNNING') toast.success('Campaign started');
+      } catch (error) {
+        if (active) setError(message(error));
+      } finally {
+        pending = false;
+      }
+    }, 1500);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [tenant, campaignId, initial.id, draft, preparing]);
   useEffect(() => {
     if (draft) return;
     let active = true;
@@ -261,38 +322,37 @@ function RunDialog({
       if (timer) clearInterval(timer);
     };
   }, [draft, refresh, run.status]);
-  function filter(key: keyof NonNullable<Audience['filters']>, value: string) {
-    setPage(1);
+  function changePage(value: number) {
     setContacts(null);
-    setAudience((a) => ({
-      ...a,
-      filters: { ...a.filters, [key]: value },
-      selection:
-        a.selection.mode === 'all'
-          ? { mode: 'all', excludedIds: [] }
-          : { mode: 'selected', ids: [] },
-    }));
+    setContactError('');
+    setPage(value);
   }
-  function toggle(id: string) {
-    setAudience((a) => {
-      const s = a.selection;
-      if (s.mode === 'all')
-        return {
-          ...a,
-          selection: {
-            mode: 'all',
-            excludedIds: s.excludedIds.includes(id)
-              ? s.excludedIds.filter((x) => x !== id)
-              : [...s.excludedIds, id],
-          },
-        };
-      return {
-        ...a,
-        selection: {
-          mode: 'selected',
-          ids: s.ids.includes(id) ? s.ids.filter((x) => x !== id) : [...s.ids, id],
-        },
-      };
+  function changeList(value: string) {
+    changePage(1);
+    setPreview(null);
+    setAudience({ selection: { mode: 'list', listId: value } });
+  }
+  function changeMode(mode: Audience['selection']['mode']) {
+    if (mode === 'list') {
+      changeList('');
+      return;
+    }
+    if (listMode) changePage(1);
+    setPreview(null);
+    setAudience({
+      filters: audience.filters ?? { searchField: 'name' },
+      selection: mode === 'all' ? { mode: 'all', excludedIds: [] } : emptyContactSelection,
+    });
+  }
+  function filter(filters: ContactFilters) {
+    changePage(1);
+    setPreview(null);
+    setAudience({
+      filters,
+      selection:
+        audience.selection.mode === 'all'
+          ? { mode: 'all', excludedIds: [] }
+          : emptyContactSelection,
     });
   }
   async function perform(action: () => Promise<void>) {
@@ -318,12 +378,20 @@ function RunDialog({
     setRun(data);
     return data;
   }
+  async function requestPreview() {
+    setPreview(null);
+    const { data } = await runAction<RunPreview | QueuedPreparation>(
+      tenant,
+      campaignId,
+      run.id,
+      'preview',
+    );
+    if ('preparation' in data) setRun((current) => ({ ...current, preparation: data.preparation }));
+    else setPreview(data);
+  }
   async function next() {
     await save();
-    if (step === 1 || step === 2) {
-      const { data } = await runAction<RunPreview>(tenant, campaignId, run.id, 'preview');
-      setPreview(data);
-    }
+    if (step === 1 || step === 2) await requestPreview();
     setStep((s) => Math.min(3, s + 1));
   }
   function binding(nodeId: string, key: string, value: Binding) {
@@ -362,9 +430,13 @@ function RunDialog({
     });
   }
   const selectedCount =
-    audience.selection.mode === 'selected'
-      ? audience.selection.ids.length
-      : Math.max(0, (contacts?.total ?? 0) - audience.selection.excludedIds.length);
+    audience.selection.mode === 'list'
+      ? (contacts?.total ?? 0)
+      : contactSelectionCount(audience.selection, contacts?.total ?? 0);
+  const missingList = !!(listId && lists && !selectedList);
+  const canUseAudience = listMode
+    ? !!selectedList && !contactError && selectedCount > 0
+    : selectedCount > 0;
   return (
     <div className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center p-3 backdrop-blur-sm">
       <section
@@ -412,115 +484,112 @@ function RunDialog({
                   ),
                 )}
               </ol>
-              <fieldset disabled={busy} className="space-y-4">
+              {preparing && preparation && (
+                <p role="status" className="rounded-lg border p-3 text-sm">
+                  Preparing audience · {preparation.processed.toLocaleString('en-IN')} processed ·{' '}
+                  {preparation.eligible.toLocaleString('en-IN')} eligible
+                </p>
+              )}
+              {preparationFailed && (
+                <p role="alert" className="text-destructive rounded-lg border p-3 text-sm">
+                  {preparation?.error ?? 'Could not prepare the audience.'}
+                </p>
+              )}
+              <fieldset disabled={busy || preparing} className="space-y-4">
                 {step === 0 && (
                   <>
-                    <div className="flex flex-wrap gap-3">
-                      <div className="flex min-w-0 flex-1 gap-2">
-                        <Input
-                          className="min-w-0 flex-1"
-                          aria-label="Search audience"
-                          placeholder={`Search by ${searchFields.find(([key]) => key === audience.filters?.searchField)?.[1].toLowerCase() ?? 'name'}…`}
-                          maxLength={255}
-                          value={audience.filters?.q ?? ''}
-                          onChange={(e) => filter('q', e.target.value)}
-                        />
-                        <select
-                          className="bg-background w-40 shrink-0 rounded-md border px-3 py-2 text-sm"
-                          aria-label="Search field"
-                          value={audience.filters?.searchField ?? 'name'}
-                          onChange={(e) => filter('searchField', e.target.value)}
-                        >
-                          {searchFields.map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <select
-                        className={`${selectClass} sm:w-56`}
-                        aria-label="Salesforce account"
-                        value={audience.filters?.salesforceConnectId ?? ''}
-                        onChange={(e) => filter('salesforceConnectId', e.target.value)}
-                      >
-                        <option value="">All Salesforce accounts</option>
-                        {salesforce.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.username}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                     <div className="flex flex-wrap gap-4 text-sm">
-                      <label className="flex gap-2">
-                        <input
-                          type="radio"
-                          checked={audience.selection.mode === 'selected'}
-                          onChange={() =>
-                            setAudience((a) => ({ ...a, selection: { mode: 'selected', ids: [] } }))
-                          }
-                        />
-                        Choose specific contacts
-                      </label>
-                      <label className="flex gap-2">
-                        <input
-                          type="radio"
-                          checked={audience.selection.mode === 'all'}
-                          onChange={() =>
-                            setAudience((a) => ({
-                              ...a,
-                              selection: { mode: 'all', excludedIds: [] },
-                            }))
-                          }
-                        />
-                        All filtered contacts across every page
-                      </label>
-                    </div>
-                    <p className="text-muted-foreground text-sm">
-                      {selectedCount} selected. Consent, blocking, suppression, phone numbers, and
-                      template values are checked before starting.
-                    </p>
-                    <div className="divide-y rounded-lg border">
-                      {!contacts && <p className="p-4 text-sm">Loading contacts…</p>}
-                      {contacts?.rows.map((c) => (
-                        <label key={c.id} className="flex items-center gap-3 p-3 text-sm">
+                      {(
+                        [
+                          ['selected', 'Specific contacts'],
+                          ['all', 'All contacts'],
+                          ['list', 'Contact list'],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <label key={mode} className="flex items-center gap-2">
                           <input
-                            type="checkbox"
-                            checked={
-                              audience.selection.mode === 'all'
-                                ? !audience.selection.excludedIds.includes(c.id)
-                                : audience.selection.ids.includes(c.id)
-                            }
-                            onChange={() => toggle(c.id)}
+                            type="radio"
+                            name={audienceGroup}
+                            checked={audience.selection.mode === mode}
+                            onChange={() => changeMode(mode)}
                           />
-                          <span className="flex-1">
-                            {c.name || 'Unnamed contact'}
-                            <span className="text-muted-foreground block text-xs">
-                              {c.whatsappPhoneNumber || c.phone} · {c.source}
-                            </span>
-                            {c.email && (
-                              <span className="text-muted-foreground block text-xs">{c.email}</span>
-                            )}
-                            {[c.location, c.city, c.state, c.country].some(Boolean) && (
-                              <span className="text-muted-foreground block text-xs">
-                                {[c.location, c.city, c.state, c.country]
-                                  .filter(Boolean)
-                                  .join(', ')}
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-muted-foreground text-xs">
-                            {c.marketingOptIn ? 'Subscribed' : 'Opted out'}
-                            {c.isBlocked ? ' · Blocked' : ''}
-                          </span>
+                          {label}
                         </label>
                       ))}
-                      {contacts && !contacts.rows.length && (
-                        <p className="p-4 text-sm">No matching contacts.</p>
-                      )}
                     </div>
-                    <Pagination page={page} total={contacts?.total ?? 0} onChange={setPage} />
+                    {listMode ? (
+                      <>
+                        <label className="block space-y-2 text-sm">
+                          Contact list
+                          <select
+                            className={selectClass}
+                            value={listId}
+                            onChange={(e) => changeList(e.target.value)}
+                          >
+                            <option value="">Choose a contact list</option>
+                            {listId && !selectedList && (
+                              <option value={listId} disabled>
+                                {missingList
+                                  ? 'List no longer available'
+                                  : 'Loading selected list…'}
+                              </option>
+                            )}
+                            {lists?.map((list) => (
+                              <option key={list.id} value={list.id}>
+                                {list.name} · {list.memberCount} contacts
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {listError && (
+                          <p role="alert" className="text-destructive text-sm">
+                            {listError}
+                          </p>
+                        )}
+                        {missingList && (
+                          <p role="alert" className="text-destructive text-sm">
+                            Choose a different contact list.
+                          </p>
+                        )}
+                        {lists?.length === 0 && (
+                          <Link
+                            className="text-primary text-sm underline"
+                            href={`/tenant/${encodeURIComponent(tenant)}/contacts`}
+                          >
+                            Create a list in Contacts
+                          </Link>
+                        )}
+                        {listId && (
+                          <ContactPicker
+                            results={contacts}
+                            page={page}
+                            onPageChange={changePage}
+                            error={contactError}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <ContactPicker
+                        results={contacts}
+                        page={page}
+                        onPageChange={changePage}
+                        search={{ filters: audience.filters ?? {}, onChange: filter, salesforce }}
+                        selection={
+                          audience.selection.mode === 'list' ? undefined : audience.selection
+                        }
+                        onSelectionChange={(selection) => {
+                          setPreview(null);
+                          setAudience((old) => ({ ...old, selection }));
+                        }}
+                        error={contactError}
+                      />
+                    )}
+                    <p className="text-muted-foreground text-sm">
+                      {audience.selection.mode === 'all' &&
+                        'All matching contacts across pages are selected unless unchecked. '}
+                      Consent, blocking, suppression, phone numbers, and template values are checked
+                      before starting.
+                    </p>
                   </>
                 )}
                 {step === 1 && (
@@ -727,6 +796,9 @@ function RunDialog({
                         </div>
                       ))}
                     </div>
+                    {listMode && selectedList && (
+                      <p className="text-sm">Contact list: {selectedList.name}</p>
+                    )}
                     <p className="text-sm">
                       Sender: {numbers.find((n) => n.id === numberId)?.phoneNumber} ·{' '}
                       {account?.apiVersion}. Previous recipients can join this new run. Recipient
@@ -787,10 +859,22 @@ function RunDialog({
                       Save draft
                     </Button>
                   </div>
-                  {step < 3 ? (
+                  {step >= 2 && (preparationFailed || !preview) ? (
+                    <Button
+                      onClick={() =>
+                        perform(async () => {
+                          await save();
+                          if (preparation?.mode === 'start' || !preview) setStep(2);
+                          await requestPreview();
+                        })
+                      }
+                    >
+                      Preview again
+                    </Button>
+                  ) : step < 3 ? (
                     <Button
                       disabled={
-                        (step === 0 && !selectedCount) || (step === 1 && (!accountId || !numberId))
+                        (step === 0 && !canUseAudience) || (step === 1 && (!accountId || !numberId))
                       }
                       onClick={() => perform(next)}
                     >
@@ -802,14 +886,18 @@ function RunDialog({
                       onClick={() =>
                         perform(async () => {
                           await save();
-                          const { data } = await runAction<CampaignRun>(
+                          const { data } = await runAction<CampaignRun | QueuedPreparation>(
                             tenant,
                             campaignId,
                             run.id,
                             'start',
                           );
-                          setRun(data);
-                          toast.success('Campaign started');
+                          if (!('id' in data)) {
+                            setRun((current) => ({ ...current, preparation: data.preparation }));
+                          } else {
+                            setRun(data);
+                            toast.success('Campaign started');
+                          }
                         })
                       }
                     >

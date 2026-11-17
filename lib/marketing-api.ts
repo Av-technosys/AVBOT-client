@@ -1,4 +1,5 @@
-import { request, type Contact } from './api';
+import { request, type Contact, type ContactSelection } from './api';
+import type { ContactFilters } from './contact-lists-api';
 export type Binding = {
   source: 'fixed' | 'contact';
   value: string;
@@ -7,17 +8,8 @@ export type Binding = {
 };
 export type RuntimeConfig = Record<string, Record<string, Binding>>;
 export type Audience = {
-  selection: { mode: 'selected'; ids: string[] } | { mode: 'all'; excludedIds: string[] };
-  filters?: {
-    q?: string;
-    searchField?: 'all' | 'name' | 'email' | 'phone' | 'location' | 'city' | 'state' | 'country';
-    source?: string;
-    salesforceConnectId?: string;
-    location?: string;
-    city?: string;
-    state?: string;
-    country?: string;
-  };
+  selection: ContactSelection | { mode: 'list'; listId: string };
+  filters?: ContactFilters;
 };
 export type MarketingNode = {
   id: string;
@@ -36,6 +28,7 @@ export type CampaignRun = {
   skippedContacts: number;
   stoppedContacts: number;
   reviewRequired?: number;
+  preparation?: AudiencePreparation | null;
   audience: Audience | null;
   runtimeConfig: RuntimeConfig;
   whatsappConnectId: string | null;
@@ -87,6 +80,17 @@ export type RunPreview = {
   }[];
   nodes: MarketingNode[];
 };
+export type AudiencePreparation = {
+  id: string;
+  mode: 'preview' | 'start';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  processed: number;
+  eligible: number;
+  excluded: number;
+  error: string | null;
+  preview: RunPreview | null;
+};
+export type QueuedPreparation = { preparation: AudiencePreparation };
 export const runPath = (tenant: string, campaign: string, run?: string) =>
   `/tenants/${encodeURIComponent(tenant)}/campaigns/${campaign}/runs${run ? `/${run}` : ''}`;
 export const listRuns = (tenant: string, campaign: string) =>
@@ -110,9 +114,10 @@ export const audiencePage = (
   run: string,
   page: number,
   filters: Audience['filters'],
+  listId?: string,
 ) =>
   request<{ data: Page<Contact> }>(`${runPath(tenant, campaign, run)}/audience`, {
-    params: { page, ...filters },
+    params: { page, ...filters, listId },
   });
 export const enrollmentPage = (tenant: string, campaign: string, run: string, page: number) =>
   request<{ data: Page<Enrollment> }>(`${runPath(tenant, campaign, run)}/enrollments`, {
