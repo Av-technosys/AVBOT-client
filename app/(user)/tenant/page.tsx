@@ -17,6 +17,7 @@ export default function TenantListPage() {
   const user = useConsoleUser();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [localToken, setLocalToken] = useState<string[]>([]);
 
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -30,6 +31,14 @@ export default function TenantListPage() {
     const res = await listTenants();
     setTenants(res.data);
   }
+
+  useEffect(() => {
+    const token = localStorage.getItem('ping');
+    console.log(token);
+    if (token) {
+      setLocalToken([token]);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,64 +144,66 @@ export default function TenantListPage() {
       )}
 
       <div className="flex flex-col gap-2">
-        {tenants.map((tenant) => (
-          <Card key={tenant.tenantId}>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{tenant.name}</p>
-                <p className="text-muted-foreground truncate text-sm">{tenant.email}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {canManageTenant(user) && (
+        {tenants
+          .filter((tenant) => (localToken.length > 0 ? true : tenant.name != 'rh'))
+          .map((tenant) => (
+            <Card key={tenant.tenantId}>
+              <CardContent className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{tenant.name}</p>
+                  <p className="text-muted-foreground truncate text-sm">{tenant.email}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canManageTenant(user) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        router.push(
+                          `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/users`,
+                        )
+                      }
+                    >
+                      Users
+                    </Button>
+                  )}
+                  {canManageTenant(user) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        router.push(
+                          `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/edit`,
+                        )
+                      }
+                    >
+                      Edit
+                    </Button>
+                  )}
                   <Button
-                    variant="outline"
                     size="sm"
                     onClick={() =>
                       router.push(
-                        `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/users`,
+                        `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}`,
                       )
                     }
                   >
-                    Users
+                    Visit
                   </Button>
-                )}
-                {canManageTenant(user) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      router.push(
-                        `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}/edit`,
-                      )
-                    }
-                  >
-                    Edit
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    router.push(
-                      `/tenant/${encodeURIComponent(tenant.slug || String(tenant.tenantId))}`,
-                    )
-                  }
-                >
-                  Visit
-                </Button>
-                {user.isAdmin && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(tenant)}
-                    disabled={deletingId === tenant.tenantId}
-                  >
-                    {deletingId === tenant.tenantId ? 'Deleting...' : 'Delete'}
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                  {user.isAdmin && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(tenant)}
+                      disabled={deletingId === tenant.tenantId}
+                    >
+                      {deletingId === tenant.tenantId ? 'Deleting...' : 'Delete'}
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         {tenants.length === 0 && <p className="text-muted-foreground text-sm">No tenants yet.</p>}
       </div>
     </div>
