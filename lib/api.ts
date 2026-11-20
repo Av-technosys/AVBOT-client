@@ -597,6 +597,18 @@ export function exportSelectedContacts(
   });
 }
 
+export function updateSelectedContactsMarketing(
+  tenant: string,
+  selection: ContactSelection,
+  marketingOptIn: boolean,
+  filters?: ContactFilters,
+) {
+  return request<{ data: { updated: number } }>(
+    `/tenants/${encodeURIComponent(tenant)}/contacts/bulk/marketing`,
+    { method: 'PUT', data: { selection, filters, marketingOptIn } },
+  );
+}
+
 export type SalesforceImportResult = {
   contactList: { id: string; name: string; memberCount: number } | null;
   total: number;

@@ -33,6 +33,7 @@ import {
   deleteContact,
   deleteSelectedContacts,
   exportSelectedContacts,
+  updateSelectedContactsMarketing,
   type Contact,
   type ContactInput,
   type ContactPage,
@@ -361,6 +362,30 @@ function TenantContacts({
       toast.success(`${data.deleted} contacts deleted`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not delete selected contacts');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateSelectedMarketing(marketingOptIn: boolean) {
+    if (pageLocked || !selectedCount) return;
+    setBusy(true);
+    try {
+      const { data } = await updateSelectedContactsMarketing(
+        tenant,
+        selection,
+        marketingOptIn,
+        filters,
+      );
+      setViewing(null);
+      refreshPage();
+      toast.success(
+        `${data.updated} contacts marked as ${marketingOptIn ? 'opted in' : 'not opted in'} to marketing`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Could not update marketing preferences',
+      );
     } finally {
       setBusy(false);
     }
@@ -731,6 +756,22 @@ function TenantContacts({
                   onClick={() => setListMode('add')}
                 >
                   Add to list
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pageLocked || !selectedCount}
+                  onClick={() => updateSelectedMarketing(true)}
+                >
+                  Mark as opted in to marketing
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pageLocked || !selectedCount}
+                  onClick={() => updateSelectedMarketing(false)}
+                >
+                  Mark as not opted in to marketing
                 </Button>
                 <Button
                   variant="outline"
