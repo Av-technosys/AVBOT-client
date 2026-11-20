@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportMarketingPreference } from '@/components/import-marketing-preference';
 import {
+  ImportContactListPreference,
+  emptyImportContactList,
+  importContactListOptions,
+  validImportContactList,
+} from '@/components/import-contact-list-preference';
+import {
   listSalesforceImportJobs,
   startSalesforceImport,
   type SalesforceImportJob,
@@ -26,6 +32,7 @@ export function SalesforceImportStatus({
   const [refresh, setRefresh] = useState(0);
   const [refreshing, setRefreshing] = useState(true);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
+  const [listPreference, setListPreference] = useState(emptyImportContactList);
   useEffect(() => {
     let active = true;
     async function load() {
@@ -51,16 +58,28 @@ export function SalesforceImportStatus({
 
   async function start(event: React.FormEvent) {
     event.preventDefault();
-    if (starting || refreshing || active || !loaded || error) return;
+    if (
+      starting ||
+      refreshing ||
+      active ||
+      !loaded ||
+      error ||
+      !validImportContactList(listPreference)
+    )
+      return;
     setStarting(true);
     try {
-      const { data } = await startSalesforceImport(tenantId, accountId, { marketingOptIn });
+      const { data } = await startSalesforceImport(tenantId, accountId, {
+        marketingOptIn,
+        ...importContactListOptions(listPreference),
+      });
       setJobs((previous) => [
         ...data,
         ...previous.filter((job) => !data.some((created) => created.id === job.id)),
       ]);
       setRefreshing(true);
       setRefresh((value) => value + 1);
+      setListPreference(emptyImportContactList);
       toast.success('Salesforce imports queued');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not start imports.');
@@ -94,17 +113,29 @@ export function SalesforceImportStatus({
       </CardHeader>
       <CardContent className="space-y-3">
         <form onSubmit={start} className="flex flex-wrap items-start gap-4 rounded-lg border p-3">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-4">
             <ImportMarketingPreference
               value={marketingOptIn}
               onChange={setMarketingOptIn}
+              disabled={starting || refreshing || active || !loaded || !!error}
+            />
+            <ImportContactListPreference
+              value={listPreference}
+              onChange={setListPreference}
               disabled={starting || refreshing || active || !loaded || !!error}
             />
           </div>
           <Button
             type="submit"
             variant="outline"
-            disabled={starting || refreshing || active || !loaded || !!error}
+            disabled={
+              starting ||
+              refreshing ||
+              active ||
+              !loaded ||
+              !!error ||
+              !validImportContactList(listPreference)
+            }
           >
             {starting ? 'Starting...' : 'Start import'}
           </Button>
@@ -130,6 +161,7 @@ export function SalesforceImportStatus({
                     'Source',
                     'Status',
                     'Marketing opt-in',
+                    'Contact list',
                     'Processed',
                     'Imported',
                     'Skipped',
@@ -154,6 +186,16 @@ export function SalesforceImportStatus({
                       </span>
                     </td>
                     <td className="border-b px-3 py-2">{job.marketingOptIn ? 'Yes' : 'No'}</td>
+                    <td className="border-b px-3 py-2">
+                      {job.contactListName || '—'}
+                      {job.contactListId && (
+                        <p className="text-muted-foreground text-xs">
+                          {job.includeExistingContacts
+                            ? 'Includes existing contacts'
+                            : 'New contacts only'}
+                        </p>
+                      )}
+                    </td>
                     <td className="border-b px-3 py-2">{job.rowsProcessed.toLocaleString()}</td>
                     <td className="border-b px-3 py-2">{job.rowsImported.toLocaleString()}</td>
                     <td className="border-b px-3 py-2">{job.rowsSkipped.toLocaleString()}</td>

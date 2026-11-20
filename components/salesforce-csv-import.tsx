@@ -9,6 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { importSalesforceCsv, type SalesforceImportResult } from '@/lib/api';
 import { ImportMarketingPreference } from '@/components/import-marketing-preference';
+import {
+  ImportContactListPreference,
+  emptyImportContactList,
+  importContactListOptions,
+  validImportContactList,
+} from '@/components/import-contact-list-preference';
 
 export function SalesforceCsvImport({
   tenant,
@@ -28,6 +34,12 @@ export function SalesforceCsvImport({
   const [error, setError] = useState('');
   const [optIn, setOptIn] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [listPreference, setListPreference] = useState(emptyImportContactList);
+  const canImport =
+    !!result &&
+    (result.ready > 0 ||
+      (listPreference.enabled && listPreference.includeExistingContacts && result.existing > 0)) &&
+    validImportContactList(listPreference);
 
   async function preview(file?: File) {
     setCsv('');
@@ -56,12 +68,18 @@ export function SalesforceCsvImport({
   }
 
   async function commit() {
-    if (!result?.ready || processing || completed) return;
+    if (!canImport || processing || completed) return;
     setProcessing(true);
     onBusyChange(true);
     setError('');
     try {
-      const { data } = await importSalesforceCsv(tenant, csv, false, optIn);
+      const { data } = await importSalesforceCsv(
+        tenant,
+        csv,
+        false,
+        optIn,
+        importContactListOptions(listPreference),
+      );
       setResult(data);
       setCompleted(true);
       onImported();
@@ -81,9 +99,10 @@ export function SalesforceCsvImport({
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
-            <CardTitle>Import contacts from Salesforce</CardTitle>
+            <CardTitle>Import contacts from CSV</CardTitle>
             <CardDescription>
-              Choose a Salesforce Account CSV. Up to 5,000 rows and 2 MB per file.
+              Choose a contacts CSV or Salesforce Account export. Up to 5,000 rows and 2 MB per
+              file.
             </CardDescription>
           </div>
           <Button variant="ghost" disabled={processing} onClick={onClose}>
@@ -93,7 +112,7 @@ export function SalesforceCsvImport({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="salesforce-csv">Salesforce CSV file</Label>
+          <Label htmlFor="salesforce-csv">Contacts CSV file</Label>
           <Input
             id="salesforce-csv"
             type="file"
@@ -104,8 +123,9 @@ export function SalesforceCsvImport({
             }}
           />
           <p className="text-muted-foreground text-xs">
-            Required columns: Id, Name, Phone. Billing address maps to location, city, state and
-            country. Type, Industry, Website and extra columns are saved as Salesforce custom data.
+            Required columns: Name, Phone. Id is optional and may be blank. Billing address maps to
+            location, city, state and country. Type, Industry, Website and extra columns are saved
+            as Salesforce custom data.
           </p>
         </div>
         <p className="text-muted-foreground text-sm">
@@ -116,6 +136,11 @@ export function SalesforceCsvImport({
         <ImportMarketingPreference
           value={optIn}
           onChange={setOptIn}
+          disabled={processing || completed}
+        />
+        <ImportContactListPreference
+          value={listPreference}
+          onChange={setListPreference}
           disabled={processing || completed}
         />
         {processing && (
@@ -136,6 +161,12 @@ export function SalesforceCsvImport({
               {result.invalid} invalid · {result.duplicates} duplicates in file · {result.existing}{' '}
               already exist
             </p>
+            {completed && result.contactList && (
+              <p role="status" className="text-sm">
+                Created list “{result.contactList.name}” with {result.contactList.memberCount}{' '}
+                contacts.
+              </p>
+            )}
             <div className="max-h-80 overflow-auto rounded-lg border">
               <table className="w-full min-w-180 text-left text-sm">
                 <thead className="bg-muted/50 text-muted-foreground">
@@ -153,7 +184,7 @@ export function SalesforceCsvImport({
                       <td className="px-3 py-2">{row.row}</td>
                       <td className="px-3 py-2">{row.name || '—'}</td>
                       <td className="px-3 py-2">{row.phone || '—'}</td>
-                      <td className="px-3 py-2">{row.salesforceId}</td>
+                      <td className="px-3 py-2">{row.salesforceId || '—'}</td>
                       <td className="px-3 py-2">
                         {row.status === 'ready' ? (completed ? 'Imported' : 'Ready') : row.reason}
                       </td>
@@ -178,8 +209,11 @@ export function SalesforceCsvImport({
               </details>
             )}
             {!completed && (
-              <Button disabled={processing || !result.ready} onClick={commit}>
-                <UploadIcon /> Import {result.ready} contacts
+              <Button disabled={processing || !canImport} onClick={commit}>
+                <UploadIcon />{' '}
+                {result.ready > 0
+                  ? `Import ${result.ready} contacts`
+                  : 'Create list from existing contacts'}
               </Button>
             )}
           </div>

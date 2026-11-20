@@ -103,7 +103,8 @@ export type SalesforceConnect = {
 
 export type SalesforceSyncObject = 'Lead' | 'Contact';
 
-export type SalesforceImportOptions = { marketingOptIn?: boolean };
+export type ImportContactListOptions = { newListName?: string; includeExistingContacts?: boolean };
+export type SalesforceImportOptions = ImportContactListOptions & { marketingOptIn?: boolean };
 
 export type SalesforceImportJob = {
   id: string;
@@ -111,6 +112,9 @@ export type SalesforceImportJob = {
   connectionId: string;
   objectType: SalesforceSyncObject;
   marketingOptIn: boolean;
+  contactListId: string | null;
+  contactListName?: string | null;
+  includeExistingContacts: boolean;
   salesforceJobId: string | null;
   status: 'QUEUED' | 'EXPORTING' | 'IMPORTING' | 'COMPLETED' | 'FAILED';
   nextPollAt: string | null;
@@ -594,6 +598,7 @@ export function exportSelectedContacts(
 }
 
 export type SalesforceImportResult = {
+  contactList: { id: string; name: string; memberCount: number } | null;
   total: number;
   ready: number;
   invalid: number;
@@ -616,6 +621,7 @@ export function importSalesforceCsv(
   csv: string,
   preview: boolean,
   marketingOptIn = false,
+  listOptions: ImportContactListOptions = {},
 ) {
   return request<{ data: SalesforceImportResult }>(
     `/tenants/${encodeURIComponent(tenant)}/contacts/import-salesforce${preview ? '/preview' : ''}`,
@@ -623,7 +629,7 @@ export function importSalesforceCsv(
       method: 'POST',
       data: csv,
       headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-      params: { marketingOptIn },
+      params: { marketingOptIn, ...listOptions },
       transformRequest: [(data) => data],
     },
   );

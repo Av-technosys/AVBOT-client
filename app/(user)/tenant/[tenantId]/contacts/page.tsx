@@ -415,7 +415,7 @@ function TenantContacts({
             Create list
           </Button>
           <Button variant="outline" disabled={pageLocked} onClick={() => setImportOpen(true)}>
-            <UploadIcon /> Import Salesforce CSV
+            <UploadIcon /> Import contacts CSV
           </Button>
           <Button disabled={pageLocked} onClick={() => edit()}>
             <PlusIcon /> Add contact
